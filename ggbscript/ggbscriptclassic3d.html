@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>GeoGebra Classic 全屏脚本导入/导出</title>
+<script src="https://www.geogebra.org/apps/deployggb.js"></script>
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: sans-serif;
+}
+#ggb-element {
+    width: 100%;
+    height: calc(100% - 50px);
+}
+#controls {
+    height: 50px;
+    background: #f0f0f0;
+    padding: 5px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+button {
+    padding: 8px 14px;
+    font-size: 14px;
+}
+</style>
+</head>
+<body>
+
+<div id="controls">
+    <button id="copyBtn">复制到剪贴板</button>
+    <button id="pasteBtn">从剪贴板导入</button>
+    <button id="downloadBtn">导出到文件</button>
+    <input type="file" id="fileInput" accept=".ggbscript,.txt"/>
+</div>
+
+<div id="ggb-element"></div>
+
+<script>
+let ggbApplet;
+
+// ---------- 初始化 GeoGebra Classic ----------
+const params = {
+    appName: "classic",       // GeoGebra Classic
+    width: window.innerWidth,
+    height: window.innerHeight - 50,
+    showToolBar: true,
+    showAlgebraInput: true,
+    showMenuBar: true,
+    enable3d: true,          // Classic 默认 2D
+    showToolBarHelp: true,
+    enableFileFeatures: true,
+    allowStyleBar: true,
+    allowRightClick: true,
+    showMenuBarAsHtml: true,
+    id: "ggbApplet"
+};
+
+const applet = new GGBApplet(params, true);
+window.addEventListener("load", () => {
+    applet.inject("ggb-element");
+});
+
+// ---------- 剪贴板功能 ----------
+document.getElementById("copyBtn").addEventListener("click", () => {
+    ggbApplet = window.ggbApplet;
+    if (!ggbApplet) return;
+    const n = ggbApplet.getObjectNumber();
+    let out = '';
+    for (let i = 0; i < n; i++) {
+        const name = ggbApplet.getObjectName(i);
+        const cmd = ggbApplet.getCommandString(name, false);
+        if (cmd) out += `${name} = ${cmd}\n`;
+        else out += `${name} = ${ggbApplet.getValueString(name)}\n`;
+    }
+    navigator.clipboard.writeText(out)
+        .then(() => alert("已复制到剪贴板！"))
+        .catch(err => alert("复制失败: " + err));
+});
+
+document.getElementById("pasteBtn").addEventListener("click", () => {
+    ggbApplet = window.ggbApplet;
+    if (!ggbApplet) return;
+    navigator.clipboard.readText().then(text => {
+        if (!text) { alert("剪贴板为空"); return; }
+        text.split(/\r?\n/).forEach(line => {
+            line = line.trim();
+            if (line && line.includes("=")) {
+                try { ggbApplet.evalCommand(line); }
+                catch(e) { console.warn("导入失败:", line, e); }
+            }
+        });
+        alert("从剪贴板导入完成！");
+    }).catch(err => alert("读取失败: " + err));
+});
+
+// ---------- 文件导入/导出 ----------
+document.getElementById("downloadBtn").addEventListener("click", () => {
+    ggbApplet = window.ggbApplet;
+    if (!ggbApplet) return;
+    const n = ggbApplet.getObjectNumber();
+    let out = '';
+    for (let i = 0; i < n; i++) {
+        const name = ggbApplet.getObjectName(i);
+        const cmd = ggbApplet.getCommandString(name, false);
+        if (cmd) out += `${name} = ${cmd}\n`;
+        else out += `${name} = ${ggbApplet.getValueString(name)}\n`;
+    }
+    const blob = new Blob([out], {type: "text/plain;charset=utf-8"});
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "geogebra_export.txt";
+    link.click();
+    URL.revokeObjectURL(link.href);
+});
+
+document.getElementById("fileInput").addEventListener("change", (e) => {
+    ggbApplet = window.ggbApplet;
+    if (!ggbApplet) return;
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+        const text = evt.target.result;
+        text.split(/\r?\n/).forEach(line => {
+            line = line.trim();
+            if (line && line.includes("=")) {
+                try { ggbApplet.evalCommand(line); }
+                catch(e) { console.warn("导入失败:", line, e); }
+            }
+        });
+        alert("文件导入完成！");
+    };
+    reader.readAsText(file, "UTF-8");
+});
+
+// ---------- 自适应窗口 ----------
+window.addEventListener('resize', () => {
+    ggbApplet = window.ggbApplet;
+    if (!ggbApplet) return;
+    const div = document.getElementById("ggb-element");
+    div.style.height = (window.innerHeight - 50) + "px";
+    ggbApplet.setWidth(div.offsetWidth);
+    ggbApplet.setHeight(div.offsetHeight);
+});
+</script>
+
+</body>
+</html>
