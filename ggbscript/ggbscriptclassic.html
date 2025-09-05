@@ -2,33 +2,14 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>GeoGebra Script Classic (3D) </title>
+<title>GeoGebra Classic ggbscript 导入/导出（按钮脚本可逆）</title>
 <script src="https://www.geogebra.org/apps/deployggb.js"></script>
 <style>
-html, body {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    font-family: sans-serif;
-}
-#ggb-element {
-    width: 100%;
-    height: calc(100% - 50px);
-}
-#controls {
-    height: 50px;
-    background: #f0f0f0;
-    padding: 5px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-button {
-    padding: 8px 14px;
-    font-size: 14px;
-}
+html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; font-family:sans-serif; }
+#ggb-element { width:100%; height:calc(100% - 50px); }
+#controls { height:50px; background:#f0f0f0; padding:5px; display:flex; align-items:center; gap:10px; }
+#controls button { padding:8px 14px; font-size:14px; }
+#btn3D { margin-left:auto; }
 </style>
 </head>
 <body>
@@ -38,6 +19,7 @@ button {
     <button id="pasteBtn">Import from Clipboard</button>
     <button id="downloadBtn">Export to File</button>
     Import from File: <input type="file" id="fileInput" accept=".ggbscript,.ggbs,.txt"/>
+    <button id="btn3D">3D</button>
 </div>
 
 <div id="ggb-element"></div>
@@ -47,13 +29,13 @@ let ggbApplet;
 
 // ---------- 初始化 GeoGebra Classic ----------
 const params = {
-    appName: "classic",       // GeoGebra Classic
+    appName: "classic",
     width: window.innerWidth,
     height: window.innerHeight - 50,
     showToolBar: true,
     showAlgebraInput: true,
     showMenuBar: true,
-    enable3d: true,          // Classic 默认 2D
+    enable3d: false,
     showToolBarHelp: true,
     enableFileFeatures: true,
     allowStyleBar: true,
@@ -61,83 +43,153 @@ const params = {
     showMenuBarAsHtml: true,
     id: "ggbApplet"
 };
-
 const applet = new GGBApplet(params, true);
-window.addEventListener("load", () => {
-    applet.inject("ggb-element");
-});
+window.addEventListener("load", () => applet.inject("ggb-element"));
 
-// ---------- 剪贴板功能 ----------
+// ---------- 导出函数 ----------
+function exportGGBScript() {
+    ggbApplet = window.ggbApplet;
+    if (!ggbApplet) return '';
+
+    let out = '';
+
+    // 普通对象命令
+	const xmlTypes = ['text', 'button', 'checkbox', 'input', 'slider'];
+    for (let i=0; i<ggbApplet.getObjectNumber(); i++) {
+        const name = ggbApplet.getObjectName(i);
+        const cmd = ggbApplet.getCommandString(name, true);
+		const type = ggbApplet.getObjectType(name);
+		
+		if (xmlTypes.includes(type)) continue; // 单独通过xml处理
+		
+        if (cmd) out += `${name} = ${cmd}\n`;
+        else out += `${name} = ${ggbApplet.getValueString(name)}\n`;
+    }
+	
+	out += "\n//==== Scripts ====\n\n";
+	
+    // 按钮脚本
+    const xml = ggbApplet.getXML();
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xml, "application/xml");
+    xmlDoc.querySelectorAll("element[type='button']").forEach(el => {
+        const captionEl = el.querySelector("caption");
+        const btnName = captionEl ? captionEl.getAttribute("val") : el.getAttribute("label") || "Unknown";
+        const ggbscript = el.querySelector("ggbscript");
+
+        // 生成 GeoGebra 原生命令创建按钮
+        out += `Button["${btnName}"]\n`;
+
+        // 脚本
+        if (ggbscript && ggbscript.getAttribute("val")) {
+            const body = ggbscript.getAttribute("val").trim();
+            if (body) out += `${btnName}.OnClick:{{{\n${body}\n}}}\n\n`;
+        }
+    });
+
+    return out.trim();
+}
+
+// ---------- 剪贴板导出 ----------
 document.getElementById("copyBtn").addEventListener("click", () => {
-    ggbApplet = window.ggbApplet;
-    if (!ggbApplet) return;
-    const n = ggbApplet.getObjectNumber();
-    let out = '';
-    for (let i = 0; i < n; i++) {
-        const name = ggbApplet.getObjectName(i);
-        const cmd = ggbApplet.getCommandString(name, false);
-        if (cmd) out += `${name} = ${cmd}\n`;
-        else out += `${name} = ${ggbApplet.getValueString(name)}\n`;
-    }
-    navigator.clipboard.writeText(out)
-        .then(() => alert("已复制到剪贴板！"))
-        .catch(err => alert("复制失败: " + err));
+    const out = exportGGBScript();
+    if (!out) return;
+    navigator.clipboard.writeText(out).then(() => alert("已复制到剪贴板！"))
+        .catch(err => alert("复制失败: "+err));
 });
 
-document.getElementById("pasteBtn").addEventListener("click", () => {
-    ggbApplet = window.ggbApplet;
-    if (!ggbApplet) return;
-    navigator.clipboard.readText().then(text => {
-        if (!text) { alert("剪贴板为空"); return; }
-        text.split(/\r?\n/).forEach(line => {
-            line = line.trim();
-            if (line && line.includes("=")) {
-                try { ggbApplet.evalCommand(line); }
-                catch(e) { console.warn("导入失败:", line, e); }
-            }
-        });
-        alert("从剪贴板导入完成！");
-    }).catch(err => alert("读取失败: " + err));
-});
-
-// ---------- 文件导入/导出 ----------
+// ---------- 文件导出 ----------
 document.getElementById("downloadBtn").addEventListener("click", () => {
-    ggbApplet = window.ggbApplet;
-    if (!ggbApplet) return;
-    const n = ggbApplet.getObjectNumber();
-    let out = '';
-    for (let i = 0; i < n; i++) {
-        const name = ggbApplet.getObjectName(i);
-        const cmd = ggbApplet.getCommandString(name, false);
-        if (cmd) out += `${name} = ${cmd}\n`;
-        else out += `${name} = ${ggbApplet.getValueString(name)}\n`;
-    }
-    const blob = new Blob([out], {type: "text/plain;charset=utf-8"});
+    const out = exportGGBScript();
+    if (!out) return;
+    const blob = new Blob([out], {type:"text/plain;charset=utf-8"});
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = "geogebra_export.txt";
+    link.download = "geogebra_export.ggbscript";
     link.click();
     URL.revokeObjectURL(link.href);
 });
 
-document.getElementById("fileInput").addEventListener("change", (e) => {
+// ---------- 导入函数 ----------
+function importGGBScript(text) {
     ggbApplet = window.ggbApplet;
     if (!ggbApplet) return;
+
+    const lines = text.split(/\r?\n/);
+    let currentBtn = null;
+    let currentScript = '';
+    let inScriptBlock = false;
+
+    lines.forEach(line => {
+        line = line.trim();
+        if (!line) return;
+
+        // 脚本块开始
+        if (line.endsWith('.OnClick:{{{')) {
+            currentBtn = line.split('.OnClick:')[0];
+            currentScript = '';
+            inScriptBlock = true;
+            return;
+        }
+
+        // 脚本块结束
+        if (line === '}}}') {
+            inScriptBlock = false;
+            if (currentBtn && currentScript) {
+                try { ggbApplet.setScript(currentBtn, "OnClick", currentScript.trim()); }
+                catch(e) { console.warn("绑定脚本失败:", currentBtn, e); }
+            }
+            currentBtn = null;
+            currentScript = '';
+            return;
+        }
+
+        if (inScriptBlock && currentBtn) {
+            currentScript += line + '\n';
+        } else {
+            // 普通命令
+            try { ggbApplet.evalCommand(line); }
+            catch(e) { console.warn("导入命令失败:", line, e); }
+        }
+    });
+
+    // 最后一个按钮脚本
+    if (currentBtn && currentScript) {
+        try { ggbApplet.evalCommand(`Button["${currentBtn}"]`); }
+        catch(e) { console.warn("创建按钮失败:", currentBtn, e); }
+        try { ggbApplet.setScript(currentBtn, "OnClick", currentScript.trim()); }
+        catch(e) { console.warn("绑定脚本失败:", currentBtn, e); }
+    }
+}
+
+// ---------- 剪贴板导入 ----------
+document.getElementById("pasteBtn").addEventListener("click", () => {
+    navigator.clipboard.readText()
+        .then(text => {
+            if (!text) { alert("剪贴板为空"); return; }
+            importGGBScript(text);
+            alert("从剪贴板导入完成！");
+        }).catch(err => alert("读取失败: " + err));
+});
+
+// ---------- 文件导入 ----------
+document.getElementById("fileInput").addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (evt) => {
-        const text = evt.target.result;
-        text.split(/\r?\n/).forEach(line => {
-            line = line.trim();
-            if (line && line.includes("=")) {
-                try { ggbApplet.evalCommand(line); }
-                catch(e) { console.warn("导入失败:", line, e); }
-            }
-        });
+    reader.onload = evt => {
+        importGGBScript(evt.target.result);
         alert("文件导入完成！");
     };
     reader.readAsText(file, "UTF-8");
+});
+
+// ---------- 3D 按钮 ----------
+document.getElementById("btn3D").addEventListener("click", () => {
+    ggbApplet = window.ggbApplet;
+    if (!ggbApplet) return;
+    try { ggbApplet.evalCommand("View3D = true"); alert("3D 视图已开启！"); }
+    catch(e) { console.warn("开启 3D 视图失败:", e); }
 });
 
 // ---------- 自适应窗口 ----------
@@ -145,7 +197,7 @@ window.addEventListener('resize', () => {
     ggbApplet = window.ggbApplet;
     if (!ggbApplet) return;
     const div = document.getElementById("ggb-element");
-    div.style.height = (window.innerHeight - 50) + "px";
+    div.style.height = (window.innerHeight-50) + "px";
     ggbApplet.setWidth(div.offsetWidth);
     ggbApplet.setHeight(div.offsetHeight);
 });
