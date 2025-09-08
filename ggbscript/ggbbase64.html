@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GGBBase64 Decoder</title>
+  <style>
+    body { font-family: monospace; padding: 10px; display: flex; flex-direction: column; gap: 15px; }
+    h1 { font-size: 24px; margin-bottom: 10px; }
+    textarea { width: 70%; height: 30vh; white-space: pre; font-size: 14px; }
+    button { width: 70%; margin-top: 5px; padding: 6px 12px; font-size: 14px; }
+    label { font-size: 14px; margin-top: 5px; }
+    h3 { margin: 5px 0; }
+    .box { display: flex; flex-direction: column; }
+  </style>
+</head>
+<body>
+  <h1>GGBBase64 Decoder</h1>
+  <button onclick="decodeData();extractExpressions();">Decode All</button>
+
+  <div class="box">
+    <h3>Input ggbpastedata</h3>
+    <textarea id="input"></textarea>
+    <label><input type="checkbox" id="removePrefix" checked> Remove all CLIPBOARDmagicSTRING</label>
+    <button onclick="decodeData()">Decode →</button>
+  </div>
+
+  <div class="box">
+    <h3>Output XML</h3>
+    <textarea id="output" readonly></textarea>
+    <button onclick="downloadXML()">Download XML</button>
+    <button onclick="extractExpressions()">Extract expressions</button>
+    <textarea id="extracted" readonly placeholder="Extracted expressions will appear here"></textarea>
+  </div>
+
+<script>
+// HTML entity decode
+function htmlDecode(str) {
+  const txt = document.createElement("textarea");
+  txt.innerHTML = str;
+  return txt.value;
+}
+
+// Decode ggbpastedata
+function decodeData() {
+  let data = document.getElementById("input").value.trim();
+  if (data.startsWith("ggbpastedata")) {
+    data = data.slice("ggbpastedata".length);
+  }
+
+  let decoded;
+  try {
+    decoded = atob(data);
+  } catch (e) {
+    alert("Base64 decode failed: " + e);
+    return;
+  }
+
+  let idx = decoded.indexOf("CLIPBOARD");
+  if (idx < 0) {
+    alert("CLIPBOARD marker not found");
+    return;
+  }
+
+  let tail = decoded.slice(idx);
+  try {
+    let xml = decodeURIComponent(tail);
+
+    const removePrefix = document.getElementById("removePrefix").checked;
+    if (removePrefix) {
+      xml = xml.replace(/CLIPBOARDmagicSTRING/g, '');
+    }
+
+    document.getElementById("output").value = xml;
+  } catch (e) {
+    alert("URL decode failed: " + e);
+  }
+}
+
+// Download XML
+function downloadXML() {
+  const text = document.getElementById("output").value;
+  if (!text.trim()) {
+    alert("No XML to download. Please decode first.");
+    return;
+  }
+  const blob = new Blob([text], {type: "application/xml"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "geogebra.xml";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Extract expressions using recursive traverse
+function extractExpressions() {
+  let xmlText = document.getElementById("output").value;
+  if (!xmlText.trim()) {
+    alert("Please decode XML first.");
+    return;
+  }
+
+  const firstTagIndex = xmlText.indexOf("<");
+  if (firstTagIndex < 0) {
+    alert("No XML start tag found");
+    return;
+  }
+
+  const xmlContent = "<root>" + xmlText.substring(firstTagIndex) + "</root>";
+
+  let parser = new DOMParser();
+  let xmlDoc;
+  try {
+    xmlDoc = parser.parseFromString(xmlContent, "application/xml");
+  } catch (e) {
+    alert("XML parse failed: " + e);
+    return;
+  }
+
+  const result = [];
+
+  function traverse(node) {
+    if (node.nodeType === 1) { // element node
+      if (node.tagName.toLowerCase() === "expression") {
+        const label = node.getAttribute("label") || "";
+        const exp = htmlDecode(node.getAttribute("exp") || "");
+        const type = node.getAttribute("type") || "";
+        if (type === "function") {
+          result.push(exp);
+        } else {
+          result.push(label + ": " + exp);
+        }
+      }
+      for (let i = 0; i < node.childNodes.length; i++) {
+        traverse(node.childNodes[i]);
+      }
+    }
+  }
+
+  traverse(xmlDoc.documentElement);
+  document.getElementById("extracted").value = result.join("\n");
+}
+</script>
+</body>
+</html>
